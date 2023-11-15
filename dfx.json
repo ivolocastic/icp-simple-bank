@@ -1,0 +1,14 @@
+{
+  "canisters": {
+    "simple_bank": {
+      "root": "src",
+      "type": "custom",
+      "main": "src/index.ts",
+      "candid": "src/index.did",
+      "build": "npx azle simple_bank",
+      "ts": "src/index.ts",
+      "wasm": ".azle/simple_bank/simple_bank.wasm",
+      "gzip": true
+    }
+  }
+}
