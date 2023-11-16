@@ -1,0 +1,10 @@
+service: () -> {
+    authenticateCustomer: (text, text) -> (variant {Ok:text; Err:text});
+    createCustomer: (text, text, float64) -> (variant {Ok:text; Err:text});
+    createTransaction: (float64, text) -> (variant {Ok:text; Err:text});
+    getAuthenticatedCustomer: () -> (variant {Ok:text; Err:text}) query;
+    getBalance: () -> (variant {Ok:text; Err:text}) query;
+    getBankDetails: () -> (variant {Ok:record {totalDeposit:float64; transactions:vec record {id:principal; operation:text; timestamp:nat64; customerID:principal; amount:float64}; customers:vec record {id:principal; username:text; password:text; amount:float64}}; Err:text}) query;
+    getCustomerTransactions: () -> (variant {Ok:vec record {id:principal; operation:text; timestamp:nat64; customerID:principal; amount:float64}; Err:text}) query;
+    signOut: () -> (variant {Ok:text; Err:text});
+}
