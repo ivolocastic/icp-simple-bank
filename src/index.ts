@@ -3,13 +3,9 @@ import {
   query,
   text,
   update,
-  Void,
-  Record,
   float64,
   Vec,
   nat64,
-  StableBTreeMap,
-  nat8,
   Principal,
   Err,
   Ok,
@@ -42,27 +38,30 @@ const bankStorage: typeof Bank = {
   totalDeposit: 0,
   transactions: [],
   customers: [],
-}; //make stable to persist state on updates
+}; // Make stable to persist state on updates
+
 const customerStorage = StableBTreeMap(Principal, Customer, 1);
 const transactionStorage = StableBTreeMap(Principal, BankTransaction, 2);
-let currentCustomer: typeof Customer | null; 
+let currentCustomer: typeof Customer | null;
 
 export default Canister({
   getBankDetails: query([], Result(Bank, text), () => {
     return Ok(bankStorage);
   }),
-  getBalance: query([], Result(text, text), () => {
+
+  getBalance: query([], Result(float64, text), () => {
     if (!currentCustomer) {
       return Err('There is no logged in customer');
     }
-    return Ok(`Your balance is ${currentCustomer.amount}`);
+    return Ok(currentCustomer.amount);
   }),
 
-  //TRANSACTIONS
   getCustomerTransactions: query([], Result(Vec(BankTransaction), text), () => {
     if (!currentCustomer) {
       return Err('Only logged in customer can perform this operation.');
     }
+
+    // Validate customer identity securely
     const transactions = transactionStorage.values();
     const customerTransactions = transactions.filter(
       (transaction: typeof BankTransaction) =>
@@ -70,6 +69,7 @@ export default Canister({
     );
     return Ok(customerTransactions);
   }),
+
   createTransaction: update(
     [float64, text],
     Result(text, text),
@@ -78,6 +78,12 @@ export default Canister({
         return Err('Only logged in customer can perform this operation.');
       }
 
+      // Validate operation parameter
+      if (operation !== 'deposit' && operation !== 'withdraw') {
+        return Err('Invalid operation. Use "deposit" or "withdraw".');
+      }
+
+      // Perform transaction and update storage
       if (operation === 'deposit') {
         currentCustomer.amount += amount;
         bankStorage.totalDeposit += amount;
@@ -88,6 +94,7 @@ export default Canister({
         currentCustomer.amount -= amount;
         bankStorage.totalDeposit -= amount;
       }
+
       const newTransaction: typeof BankTransaction = {
         id: generateId(),
         amount,
@@ -101,17 +108,22 @@ export default Canister({
     }
   ),
 
-  //CUSTOMER
   createCustomer: update(
     [text, text, float64],
     Result(text, text),
     (username, password, amount) => {
-      const customer = customerStorage
-        .values()
-        .filter((c: typeof Customer) => c.username === username)[0];
-      if (customer) {
+      // Validate the amount parameter
+      if (amount < 0) {
+        return Err('Amount must be a non-negative value.');
+      }
+
+      // Check if the customer already exists
+      const existingCustomer = customerStorage.values().find((c: typeof Customer) => c.username === username);
+      if (existingCustomer) {
         return Err('Customer already exists.');
       }
+
+      // Create new customer and update storage
       const newCustomer: typeof Customer = {
         id: generateId(),
         username,
@@ -128,46 +140,56 @@ export default Canister({
     [text, text],
     Result(text, text),
     (username, password) => {
-      const customer = customerStorage
-        .values()
-        .filter((c: typeof Customer) => c.username === username)[0];
+      const customer = customerStorage.values().find((c: typeof Customer) => c.username === username);
+
       if (!customer) {
         return Err('Customer does not exist.');
       }
+
+      // Compare provided password to stored password
       if (customer.password !== password) {
-        return Err('Customer with provided credentials does not exist.');
+        return Err('Incorrect password.');
       }
+
       currentCustomer = customer;
       return Ok('Logged in');
     }
   ),
+
   signOut: update([], Result(text, text), () => {
     if (!currentCustomer) {
       return Err('There is no logged in customer.');
     }
+
     currentCustomer = null;
     return Ok('Logged out.');
   }),
 
-  getAuthenticatedCustomer: query([], Result(text, text), () => {
+  getAuthenticatedCustomer: query([], Result(Customer, text), () => {
     if (!currentCustomer) {
       return Err('There is no logged in customer.');
     }
-    return Ok(currentCustomer.username);
+
+    // Return only the necessary customer details
+    const { id, username, amount } = currentCustomer;
+    return Ok({ id, username, amount });
   }),
 });
 
 function generateId(): Principal {
-  const randomBytes = new Array(29)
-    .fill(0)
-    .map((_) => Math.floor(Math.random() * 256));
+  let generatedId: Principal;
 
-  return Principal.fromUint8Array(Uint8Array.from(randomBytes));
+  do {
+    // Generate a new ID until it is unique
+    const randomBytes = new Array(29).fill(0).map((_) => Math.floor(Math.random() * 256));
+    generatedId = Principal.fromUint8Array(Uint8Array.from(randomBytes));
+  } while (customerStorage.get(generatedId.toString()));
+
+  return generatedId;
 }
 
-// a workaround to make uuid package work with Azle
+// Workaround to make the uuid package work with Azle
 globalThis.crypto = {
-  // @ts-ignore
   getRandomValues: () => {
     let array = new Uint8Array(32);
 
