@@ -1,161 +1,195 @@
 import {
-  Canister,
-  query,
-  text,
-  update,
-  Void,
+  $query,
+  $update,
+  Result,
   Record,
   float64,
   Vec,
   nat64,
   StableBTreeMap,
-  nat8,
   Principal,
-  Err,
-  Ok,
-  Result,
   ic,
 } from 'azle';
 
-const BankTransaction = Record({
-  id: Principal,
-  amount: float64,
-  timestamp: nat64,
-  customerID: Principal,
-  operation: text,
-});
+type BankTransactionType = Record<{
+  id: Principal;
+  amount: float64;
+  timestamp: nat64;
+  customerID: Principal;
+  operation: string;
+}>;
 
-const Customer = Record({
-  id: Principal,
-  username: text,
-  password: text,
-  amount: float64,
-});
+type CustomerType = Record<{
+  id: Principal;
+  username: string;
+  password: string;
+  amount: float64;
+}>;
 
-const Bank = Record({
-  totalDeposit: float64,
-  transactions: Vec(BankTransaction),
-  customers: Vec(Customer),
-});
+type BankType = Record<{
+  totalDeposit: float64;
+  transactions: Vec<BankTransactionType>;
+  customers: Vec<CustomerType>;
+}>;
 
-const bankStorage: typeof Bank = {
+const bankStorage: BankType = {
   totalDeposit: 0,
   transactions: [],
   customers: [],
 }; //make stable to persist state on updates
-const customerStorage = StableBTreeMap(Principal, Customer, 1);
-const transactionStorage = StableBTreeMap(Principal, BankTransaction, 2);
-let currentCustomer: typeof Customer | null; 
 
-export default Canister({
-  getBankDetails: query([], Result(Bank, text), () => {
-    return Ok(bankStorage);
-  }),
-  getBalance: query([], Result(text, text), () => {
-    if (!currentCustomer) {
-      return Err('There is no logged in customer');
-    }
-    return Ok(`Your balance is ${currentCustomer.amount}`);
-  }),
+const customerStorage = new StableBTreeMap<Principal, CustomerType>(0, 44, 1024);
+const transactionStorage = new StableBTreeMap<Principal, BankTransactionType>(1, 44, 1024);
 
-  //TRANSACTIONS
-  getCustomerTransactions: query([], Result(Vec(BankTransaction), text), () => {
+let currentCustomer: CustomerType | null;
+
+
+$query
+export function getBankDetails(): Result<BankType, string> {
+  try {
+    return Result.Ok(bankStorage);
+  } catch (error) {
+    return Result.Err('Failed to get bank details');
+  }
+}
+
+$query
+export function getBalance(): Result<string, string> {
+  try {
     if (!currentCustomer) {
-      return Err('Only logged in customer can perform this operation.');
+      return Result.Err('There is no logged in customer');
     }
+    return Result.Ok(`Your balance is ${currentCustomer.amount}`);
+  } catch (error) {
+    return Result.Err('Failed to get balance');
+  }
+}
+
+$query
+export function getCustomerTransactions(): Result<Vec<BankTransactionType>, string> {
+  try {
+    if (!currentCustomer) {
+      return Result.Err('Only logged in customers can perform this operation.');
+    }
+
     const transactions = transactionStorage.values();
     const customerTransactions = transactions.filter(
-      (transaction: typeof BankTransaction) =>
-        transaction.customerID === currentCustomer.id
+      (transaction: BankTransactionType) => transaction.customerID === currentCustomer!.id
     );
-    return Ok(customerTransactions);
-  }),
-  createTransaction: update(
-    [float64, text],
-    Result(text, text),
-    (amount, operation) => {
-      if (!currentCustomer) {
-        return Err('Only logged in customer can perform this operation.');
-      }
 
-      if (operation === 'deposit') {
-        currentCustomer.amount += amount;
-        bankStorage.totalDeposit += amount;
-      } else {
-        if (currentCustomer.amount < amount) {
-          return Err('Account balance lower than withdrawal amount.');
-        }
-        currentCustomer.amount -= amount;
-        bankStorage.totalDeposit -= amount;
-      }
-      const newTransaction: typeof BankTransaction = {
-        id: generateId(),
-        amount,
-        operation,
-        timestamp: ic.time(),
-        customerID: currentCustomer.id,
-      };
-      transactionStorage.insert(newTransaction.id, newTransaction);
-      customerStorage.insert(currentCustomer.id, { ...currentCustomer });
-      return Ok('Transaction successful.');
-    }
-  ),
+    return Result.Ok(customerTransactions);
+  } catch (error) {
+    return Result.Err('Failed to get transactions');
+  }
+}
 
-  //CUSTOMER
-  createCustomer: update(
-    [text, text, float64],
-    Result(text, text),
-    (username, password, amount) => {
-      const customer = customerStorage
-        .values()
-        .filter((c: typeof Customer) => c.username === username)[0];
-      if (customer) {
-        return Err('Customer already exists.');
-      }
-      const newCustomer: typeof Customer = {
-        id: generateId(),
-        username,
-        password,
-        amount,
-      };
-      customerStorage.insert(newCustomer.id, newCustomer);
-      bankStorage.totalDeposit += newCustomer.amount;
-      return Ok(`Customer ${newCustomer.username} added successfully.`);
-    }
-  ),
-
-  authenticateCustomer: update(
-    [text, text],
-    Result(text, text),
-    (username, password) => {
-      const customer = customerStorage
-        .values()
-        .filter((c: typeof Customer) => c.username === username)[0];
-      if (!customer) {
-        return Err('Customer does not exist.');
-      }
-      if (customer.password !== password) {
-        return Err('Customer with provided credentials does not exist.');
-      }
-      currentCustomer = customer;
-      return Ok('Logged in');
-    }
-  ),
-  signOut: update([], Result(text, text), () => {
+$update
+export function createTransaction(amount: float64, operation: string): Result<string, string> {
+  try {
     if (!currentCustomer) {
-      return Err('There is no logged in customer.');
+      return Result.Err('Only logged in customers can perform this operation.');
     }
+
+    if (operation === 'deposit') {
+      currentCustomer.amount += amount;
+      bankStorage.totalDeposit += amount;
+    } else {
+      if (currentCustomer.amount < amount) {
+        return Result.Err('Account balance is lower than withdrawal amount.');
+      }
+      currentCustomer.amount -= amount;
+      bankStorage.totalDeposit -= amount;
+    }
+
+    const newTransaction: BankTransactionType = {
+      id: generateId(),
+      amount,
+      operation,
+      timestamp: ic.time(),
+      customerID: currentCustomer.id,
+    };
+    transactionStorage.insert(newTransaction.id, newTransaction);
+    customerStorage.insert(currentCustomer.id, { ...currentCustomer });
+
+    return Result.Ok('Transaction successful.');
+  } catch (error) {
+    return Result.Err('Failed to create transaction');
+  }
+}
+
+//CUSTOMER
+$update
+export function createCustomer(username: string, password: string, amount: float64): Result<string, string> {
+  try {
+    const customer = customerStorage.values().find((c: CustomerType) => c.username === username);
+    if (customer) {
+      return Result.Err('Customer already exists.');
+    }
+
+    const newCustomer: CustomerType = {
+      id: generateId(),
+      username,
+      password,
+      amount,
+    };
+    customerStorage.insert(newCustomer.id, newCustomer);
+    bankStorage.totalDeposit += newCustomer.amount;
+
+    return Result.Ok(`Customer ${newCustomer.username} added successfully.`);
+  } catch (error) {
+    return Result.Err('Failed to create customer');
+  }
+}
+
+$update
+export function authenticateCustomer(username: string, password: string): Result<string, string> {
+  try {
+    const customer = customerStorage.values().find((c: CustomerType) => c.username === username);
+    if (!customer) {
+      return Result.Err('Customer does not exist.');
+    }
+    if (customer.password !== password) {
+      return Result.Err('Customer with provided credentials does not exist.');
+    }
+    currentCustomer = customer;
+
+    return Result.Ok('Logged in');
+  } catch (error) {
+    return Result.Err('Failed to authenticate customer');
+  }
+}
+
+$update
+export function signOut(): Result<string, string> {
+  try {
+    if (!currentCustomer) {
+      return Result.Err('There is no logged-in customer.');
+    }
+
     currentCustomer = null;
-    return Ok('Logged out.');
-  }),
+    return Result.Ok('Logged out.');
+  } catch (error) {
+    return Result.Err('Failed to sign out');
+  }
+}
 
-  getAuthenticatedCustomer: query([], Result(text, text), () => {
+
+
+$query
+export function getAuthenticatedCustomer(): Result<string, string> {
+  try {
     if (!currentCustomer) {
-      return Err('There is no logged in customer.');
+      return Result.Err('There is no logged in customer.');
     }
-    return Ok(currentCustomer.username);
-  }),
-});
+
+    return Result.Ok(currentCustomer.username);
+  } catch (error) {
+    return Result.Err('Failed to get authenticated customer');
+  }
+}
+
+
+
 
 function generateId(): Principal {
   const randomBytes = new Array(29)
