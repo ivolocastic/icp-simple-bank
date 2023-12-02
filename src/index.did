@@ -1,10 +1,31 @@
-service: () -> {
-    authenticateCustomer: (text, text) -> (variant {Ok:text; Err:text});
-    createCustomer: (text, text, float64) -> (variant {Ok:text; Err:text});
-    createTransaction: (float64, text) -> (variant {Ok:text; Err:text});
-    getAuthenticatedCustomer: () -> (variant {Ok:text; Err:text}) query;
-    getBalance: () -> (variant {Ok:text; Err:text}) query;
-    getBankDetails: () -> (variant {Ok:record {totalDeposit:float64; transactions:vec record {id:principal; operation:text; timestamp:nat64; customerID:principal; amount:float64}; customers:vec record {id:principal; username:text; password:text; amount:float64}}; Err:text}) query;
-    getCustomerTransactions: () -> (variant {Ok:vec record {id:principal; operation:text; timestamp:nat64; customerID:principal; amount:float64}; Err:text}) query;
-    signOut: () -> (variant {Ok:text; Err:text});
+type BankTransactionType = record {
+  id : principal;
+  operation : text;
+  timestamp : nat64;
+  customerID : principal;
+  amount : float64;
+};
+type BankType = record {
+  totalDeposit : float64;
+  transactions : vec BankTransactionType;
+  customers : vec CustomerType;
+};
+type CustomerType = record {
+  id : principal;
+  username : text;
+  password : text;
+  amount : float64;
+};
+type _AzleResult = variant { Ok : text; Err : text };
+type _AzleResult_1 = variant { Ok : BankType; Err : text };
+type _AzleResult_2 = variant { Ok : vec BankTransactionType; Err : text };
+service : () -> {
+  authenticateCustomer : (text, text) -> (_AzleResult);
+  createCustomer : (text, text, float64) -> (_AzleResult);
+  createTransaction : (float64, text) -> (_AzleResult);
+  getAuthenticatedCustomer : () -> (_AzleResult) query;
+  getBalance : () -> (_AzleResult) query;
+  getBankDetails : () -> (_AzleResult_1) query;
+  getCustomerTransactions : () -> (_AzleResult_2) query;
+  signOut : () -> (_AzleResult);
 }
